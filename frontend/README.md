@@ -1,36 +1,125 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CityFix Frontend
 
-## Getting Started
+Next.js frontend for CityFix civic issue tracker.
 
-First, run the development server:
+## Setup Instructions
+
+### 1. Install Dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+### 2. Install Additional Packages
+
+```bash
+npm install firebase @googlemaps/js-api-loader
+npm install -D @types/google.maps
+```
+
+### 3. Firebase Configuration
+
+1. Go to [Firebase Console](https://console.firebase.google.com/)
+2. Select your project
+3. Go to Project Settings → General → Your apps
+4. Click "Web" icon to add a web app
+5. Copy the configuration values
+
+### 4. Environment Variables
+
+Create `.env.local` file in `frontend/` folder:
+
+```bash
+cp .env.local.example .env.local
+```
+
+Edit `.env.local` and add your Firebase config:
+
+```
+NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_google_maps_key
+NEXT_PUBLIC_API_URL=http://localhost:5000/api
+```
+
+### 5. Run Development Server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+frontend/
+├── app/                    # Next.js App Router
+│   ├── page.tsx                # Home page
+│   ├── layout.tsx              # Root layout
+│   ├── globals.css             # Global styles
+│   ├── report/                 # Report issue page
+│   │   └── page.tsx
+│   ├── dashboard/              # Dashboard page
+│   │   └── page.tsx
+│   └── status/[id]/            # Status detail page
+│       └── page.tsx
+├── lib/                    # Utility libraries
+│   ├── firebase.ts             # Firebase initialization
+│   └── api.ts                  # API client
+├── public/                 # Static assets
+└── package.json
+```
 
-## Learn More
+## Available Pages
 
-To learn more about Next.js, take a look at the following resources:
+- **`/`** - Home page with features and stats
+- **`/report`** - Report new civic issue
+- **`/dashboard`** - View all complaints with filters
+- **`/status/[id]`** - View specific complaint details
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Features
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Phase 1 (Current)
+✅ Basic page structure
+✅ Responsive TailwindCSS UI
+✅ Firebase configuration
+✅ API client setup
+⏳ Authentication (coming in Phase 2)
+⏳ Google Maps integration (coming in Phase 3)
+⏳ AI features (coming in Phase 3-5)
 
-## Deploy on Vercel
+### Coming Soon
+- 🔐 Firebase Authentication
+- 🗺️ Google Maps integration
+- 🤖 AI-powered auto-tagging
+- 📊 Admin dashboard
+- 🔔 Notifications
+- 💬 AI chatbot
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Development
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The project uses:
+- **Next.js 16** with App Router
+- **TailwindCSS 4** for styling
+- **TypeScript** for type safety
+- **Firebase** for backend services
+
+## Building for Production
+
+```bash
+npm run build
+npm start
+```
+
+## Notes
+
+- Lint errors for `any` types will be fixed in subsequent phases when we add proper TypeScript interfaces
+- Firebase and Google Maps features require valid API keys
+- Make sure the backend is running on `http://localhost:5000` for API calls
+
