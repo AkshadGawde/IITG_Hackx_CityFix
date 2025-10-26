@@ -181,7 +181,7 @@ const MapDisplay: React.FC<MapDisplayProps> = ({ issues }) => {
     );
   }
 
-  return <div ref={mapRef} className="h-[400px] w-full bg-gray-200 rounded-lg mb-8 shadow-md" aria-label="Map of reported issues" />;
+  return <div ref={mapRef} className="w-full bg-gray-200 rounded-lg mb-8 shadow-md h-64 md:h-80 lg:h-96" aria-label="Map of reported issues" />;
 };
 
 export default MapDisplay;

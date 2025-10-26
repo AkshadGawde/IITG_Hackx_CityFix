@@ -61,7 +61,7 @@ const Chatbot: React.FC<ChatbotProps> = ({ onSendMessage }) => {
             </button>
 
             {isOpen && (
-                <div className="fixed bottom-24 right-6 w-80 md:w-96 h-[28rem] bg-white rounded-lg shadow-2xl flex flex-col z-20 transition-opacity duration-300 animate-fade-in-up">
+                <div className="fixed bottom-24 right-4 sm:right-6 w-[90vw] max-w-md h-[70vh] sm:h-[28rem] bg-white rounded-lg shadow-2xl flex flex-col z-20 transition-opacity duration-300 animate-fade-in-up">
                     <header className="bg-brand-blue text-white p-4 rounded-t-lg">
                         <h3 className="font-bold text-lg">City Helper Bot</h3>
                     </header>

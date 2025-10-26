@@ -17,7 +17,7 @@ const ActionPlanModal: React.FC<ActionPlanModalProps> = ({ plan, issueId, onClos
       aria-labelledby="action-plan-title"
     >
       <div 
-        className="bg-white rounded-lg shadow-xl w-full max-w-lg"
+        className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto"
         onClick={e => e.stopPropagation()} // Prevent closing when clicking inside
       >
         <div className="p-6 border-b border-gray-200">

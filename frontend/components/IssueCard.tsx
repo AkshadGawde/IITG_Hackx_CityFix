@@ -102,11 +102,11 @@ const IssueCard: React.FC<IssueCardProps> = ({ issue, currentUser, onStatusChang
 
   return (
     <>
-    <div className="bg-white rounded-xl shadow-lg overflow-hidden transition-transform duration-300 hover:scale-105 hover:shadow-2xl flex flex-col">
-      <img className="h-48 w-full object-cover" src={issue.photoUrl} alt={issue.title} />
+    <div className="bg-white rounded-xl shadow-lg overflow-hidden transition-transform duration-300 hover:shadow-2xl flex flex-col">
+      <img className="h-48 w-full object-cover" src={issue.photoUrl} alt={issue.title} loading="lazy" />
       <div className="p-5 flex flex-col flex-grow">
         <div className="flex justify-between items-start mb-2 gap-2">
-            <h3 className="text-lg font-bold text-brand-dark leading-tight flex-1">{issue.title}</h3>
+            <h3 className="text-lg font-bold text-brand-dark leading-tight flex-1 break-anywhere">{issue.title}</h3>
             {currentUser.role === 'admin' ? <AdminControls /> : <UserDisplay />}
         </div>
         
@@ -170,7 +170,7 @@ const IssueCard: React.FC<IssueCardProps> = ({ issue, currentUser, onStatusChang
           )}
           <div className="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v5.586l1.293-1.293a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L11 10.414V5z" clipRule="evenodd" /></svg>
-            <span className="font-mono">{issue.id}</span>
+            <span className="font-mono break-anywhere">{issue.id}</span>
           </div>
           <div className="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>

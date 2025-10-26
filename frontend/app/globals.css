@@ -6,3 +6,15 @@
 html, body {
   height: 100%;
 }
+
+/* Improve text wrapping for long IDs/URLs on small screens */
+.break-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Mobile-safe image rendering */
+img { 
+  max-width: 100%;
+  height: auto;
+}

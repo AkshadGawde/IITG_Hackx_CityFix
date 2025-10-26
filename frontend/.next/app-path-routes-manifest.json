@@ -1,0 +1,7 @@
+{
+  "/api/gemini/plan/route": "/api/gemini/plan",
+  "/api/gemini/analyze/route": "/api/gemini/analyze",
+  "/_not-found/page": "/_not-found",
+  "/admin/page": "/admin",
+  "/page": "/"
+}
