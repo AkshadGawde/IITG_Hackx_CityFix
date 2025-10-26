@@ -138,16 +138,22 @@ def get_nearby_documents(collection: str, center_lat: float, center_lng: float, 
 
     results = []
     for doc in query.stream():
-        data = doc.to_dict()
+        data = doc.to_dict() or {}
         # Extract lat/lng using nested fields (location.lat etc.)
         try:
             # Support both 'lng' and 'lon'
-            lat = _deep_get(data, lat_field)
-            lng = _deep_get(data, lng_field)
-            if lat is None or lng is None:
+            lat_val = _deep_get(data, lat_field)
+            lng_val = _deep_get(data, lng_field)
+            if lat_val is None or lng_val is None:
+                # try alternate key for longitude if missing
+                if lng_val is None and lng_field.endswith('lng'):
+                    lng_val = _deep_get(data, lng_field[:-3] + 'lon')
+            if lat_val is None or lng_val is None:
                 continue
-            dist_km = _haversine_km(float(lat), float(
-                lng), float(center_lat), float(center_lng))
+            lat_f = float(str(lat_val))
+            lng_f = float(str(lng_val))
+            dist_km = _haversine_km(lat_f, lng_f, float(
+                center_lat), float(center_lng))
             if dist_km <= radius_km:
                 data['id'] = doc.id
                 data['_distance_km'] = dist_km

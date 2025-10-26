@@ -4,19 +4,24 @@ This module centralizes all Gemini calls and provides typed helper
 functions the rest of the backend can use. Where feasible, we request
 structured JSON outputs to simplify downstream parsing.
 """
-import google.generativeai as genai
 from config import Config
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 import math
-import numpy as np
+import json
+import google.generativeai as genai
 
 
 # Configure Gemini API
-genai.configure(api_key=Config.GEMINI_API_KEY or os.getenv('GEMINI_API_KEY'))
+try:
+    genai.configure(api_key=Config.GEMINI_API_KEY or os.getenv(
+        'GEMINI_API_KEY'))  # type: ignore[attr-defined]
+except Exception:
+    # Defer failure to call-time; functions will return safe defaults
+    pass
 
 
-def analyze_image(image_data, prompt, *, response_mime_type: Optional[str] = None, response_schema: Optional[dict] = None):
+def analyze_image(image_data, prompt, *, expect_json: bool = False):
     """
     Analyze image using Gemini Vision API.
 
@@ -28,22 +33,23 @@ def analyze_image(image_data, prompt, *, response_mime_type: Optional[str] = Non
         dict: Analysis result
     """
     try:
+        # type: ignore[attr-defined]
         model = genai.GenerativeModel('gemini-1.5-flash')
-        generation_config = {}
-        if response_mime_type:
-            generation_config['response_mime_type'] = response_mime_type
-        if response_schema:
-            generation_config['response_schema'] = response_schema
-
-        if generation_config:
-            response = model.generate_content(
-                [prompt, image_data], generation_config=generation_config)
-        else:
-            response = model.generate_content([prompt, image_data])
-        return {
-            'success': True,
-            'result': response.text
-        }
+        response = model.generate_content([prompt, image_data])
+        text = (response.text or '').strip()
+        if expect_json:
+            try:
+                return {'success': True, 'result': json.loads(text)}
+            except Exception:
+                # Try to extract JSON substring
+                start = text.find('{')
+                end = text.rfind('}')
+                if start != -1 and end != -1 and end > start:
+                    try:
+                        return {'success': True, 'result': json.loads(text[start:end+1])}
+                    except Exception:
+                        pass
+        return {'success': True, 'result': text}
     except Exception as e:
         return {
             'success': False,
@@ -51,7 +57,7 @@ def analyze_image(image_data, prompt, *, response_mime_type: Optional[str] = Non
         }
 
 
-def generate_text(prompt, *, response_mime_type: Optional[str] = None, response_schema: Optional[dict] = None):
+def generate_text(prompt, *, expect_json: bool = False):
     """
     Generate text using Gemini API.
 
@@ -62,22 +68,22 @@ def generate_text(prompt, *, response_mime_type: Optional[str] = None, response_
         dict: Generated text result
     """
     try:
+        # type: ignore[attr-defined]
         model = genai.GenerativeModel('gemini-1.5-flash')
-        generation_config = {}
-        if response_mime_type:
-            generation_config['response_mime_type'] = response_mime_type
-        if response_schema:
-            generation_config['response_schema'] = response_schema
-
-        if generation_config:
-            response = model.generate_content(
-                prompt, generation_config=generation_config)
-        else:
-            response = model.generate_content(prompt)
-        return {
-            'success': True,
-            'result': response.text
-        }
+        response = model.generate_content(prompt)
+        text = (response.text or '').strip()
+        if expect_json:
+            try:
+                return {'success': True, 'result': json.loads(text)}
+            except Exception:
+                start = text.find('[') if '[' in text else text.find('{')
+                end = text.rfind(']') if ']' in text else text.rfind('}')
+                if start != -1 and end != -1 and end > start:
+                    try:
+                        return {'success': True, 'result': json.loads(text[start:end+1])}
+                    except Exception:
+                        pass
+        return {'success': True, 'result': text}
     except Exception as e:
         return {
             'success': False,
@@ -182,40 +188,59 @@ def classify_issue(image_data, description: str) -> Dict[str, Any]:
         "category (string) and confidence (0.0-1.0)."
         f"\nDescription: {description}"
     )
-    schema = {
-        "type": "object",
-        "properties": {
-            "category": {"type": "string"},
-            "confidence": {"type": "number"}
-        },
-        "required": ["category", "confidence"]
-    }
-    res = analyze_image(
-        image_data, prompt, response_mime_type="application/json", response_schema=schema)
+    res = analyze_image(image_data, prompt +
+                        "\nReturn ONLY JSON.", expect_json=True)
     if not res.get('success'):
         return {"category": "Other", "confidence": 0.0, "error": res.get('error')}
+    data = res.get('result') or {}
+    category = str(data.get('category') or 'Other')
     try:
-        return {**{"category": "Other", "confidence": 0.0}, **__safe_json_parse(res['result'])}
+        confidence = float(data.get('confidence', 0.0))
     except Exception:
-        return {"category": "Other", "confidence": 0.0}
+        confidence = 0.0
+    return {"category": category, "confidence": max(0.0, min(1.0, confidence))}
 
 
 def get_text_embedding(text: str) -> Optional[List[float]]:
     """Get text embedding vector using Gemini embeddings."""
     try:
-        emb = genai.embed_content(model='text-embedding-004', content=text)
-        return emb["embedding"]["values"] if isinstance(emb, dict) else emb.embedding.values
+        # Model name format can vary; use getattr to avoid static typing issues
+        emb_fn = getattr(genai, 'embed_content', None)
+        if not callable(emb_fn):
+            return None
+        try:
+            res = emb_fn(model='text-embedding-004', content=text)
+        except Exception:
+            res = emb_fn(model='models/text-embedding-004', content=text)
+
+        # Normalize output
+        if isinstance(res, dict):
+            emb = res.get('embedding')
+            if isinstance(emb, dict):
+                vals = emb.get('values')
+                if isinstance(vals, list):
+                    return [float(x) for x in vals]
+        # Some SDKs return an object with .embedding.values
+        emb_obj = getattr(res, 'embedding', None)
+        vals = getattr(emb_obj, 'values', None)
+        if vals:
+            return [float(x) for x in vals]
+        return None
     except Exception:
         return None
 
 
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
-    a = np.array(v1, dtype=float)
-    b = np.array(v2, dtype=float)
-    denom = (np.linalg.norm(a) * np.linalg.norm(b))
-    if denom == 0:
+    if not v1 or not v2:
         return 0.0
-    return float(np.dot(a, b) / denom)
+    n = min(len(v1), len(v2))
+    a = [float(x) for x in v1[:n]]
+    b = [float(x) for x in v2[:n]]
+    dot = sum(x*y for x, y in zip(a, b))
+    na = math.sqrt(sum(x*x for x in a))
+    nb = math.sqrt(sum(y*y for y in b))
+    denom = na * nb
+    return float(dot/denom) if denom else 0.0
 
 
 def image_similarity_score(image1, image2) -> float:
@@ -227,21 +252,13 @@ def image_similarity_score(image1, image2) -> float:
         "Compare these two images and output ONLY a JSON object with a field "
         "'similarity' as a value between 0.0 and 1.0 indicating if they depict the same civic issue."
     )
-    schema = {
-        "type": "object",
-        "properties": {"similarity": {"type": "number"}},
-        "required": ["similarity"]
-    }
     try:
+        # type: ignore[attr-defined]
         model = genai.GenerativeModel('gemini-1.5-flash')
-        generation_config = {
-            'response_mime_type': 'application/json',
-            'response_schema': schema
-        }
-        # Note: Python SDK accepts a list of parts; we pass prompt then both images
         resp = model.generate_content(
-            [prompt, image1, image2], generation_config=generation_config)
-        data = __safe_json_parse(resp.text)
+            [prompt + " Return ONLY JSON.", image1, image2])
+        text = (resp.text or '').strip()
+        data = __safe_json_parse(text)
         sim = float(data.get('similarity', 0.0))
         return max(0.0, min(1.0, sim))
     except Exception:
@@ -256,26 +273,14 @@ def assess_severity(description: str, category: Optional[str] = None) -> Dict[st
         f"Category: {category or 'Unknown'}\n"
         f"Description: {description}"
     )
-    schema = {
-        "type": "object",
-        "properties": {
-            "severity": {"type": "string", "enum": ["High", "Medium", "Low"]},
-            "reason": {"type": "string"}
-        },
-        "required": ["severity", "reason"]
-    }
-    res = generate_text(
-        prompt, response_mime_type="application/json", response_schema=schema)
+    res = generate_text(prompt + "\nReturn ONLY JSON.", expect_json=True)
     if not res.get('success'):
         return {"severity": "Medium", "reason": "AI unavailable"}
-    try:
-        data = __safe_json_parse(res['result'])
-        sev = data.get('severity') or 'Medium'
-        if sev not in ("High", "Medium", "Low"):
-            sev = 'Medium'
-        return {"severity": sev, "reason": data.get('reason', '')}
-    except Exception:
-        return {"severity": "Medium", "reason": "Parsing error"}
+    data = res.get('result') or {}
+    sev = str(data.get('severity') or 'Medium')
+    if sev not in ("High", "Medium", "Low"):
+        sev = 'Medium'
+    return {"severity": sev, "reason": str(data.get('reason') or '')}
 
 
 def weekly_summary_bullets(stats: Dict[str, Any], complaints: List[Dict[str, Any]]) -> List[str]:
@@ -286,15 +291,12 @@ def weekly_summary_bullets(stats: Dict[str, Any], complaints: List[Dict[str, Any
         "Return ONLY a JSON array of 3 short strings.\n\n"
         f"Stats: {stats}\n\nSamples: {complaints[:50]}"
     )
-    schema = {"type": "array", "items": {"type": "string"}}
-    res = generate_text(
-        prompt, response_mime_type="application/json", response_schema=schema)
+    res = generate_text(prompt + "\nReturn ONLY a JSON array of 3 strings.")
     if not res.get('success'):
         return []
     try:
         arr = __safe_json_parse(res['result'])
         if isinstance(arr, list):
-            # trim to 3
             return [str(x) for x in arr][:3]
         return []
     except Exception:
@@ -302,5 +304,23 @@ def weekly_summary_bullets(stats: Dict[str, Any], complaints: List[Dict[str, Any
 
 
 def __safe_json_parse(text: str):
-    import json
-    return json.loads(text.strip())
+    text = (text or '').strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        # Attempt substring extraction
+        s = text.find('{')
+        e = text.rfind('}')
+        if s != -1 and e != -1 and e > s:
+            try:
+                return json.loads(text[s:e+1])
+            except Exception:
+                pass
+        s = text.find('[')
+        e = text.rfind(']')
+        if s != -1 and e != -1 and e > s:
+            try:
+                return json.loads(text[s:e+1])
+            except Exception:
+                pass
+        return {}

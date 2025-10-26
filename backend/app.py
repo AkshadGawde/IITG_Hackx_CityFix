@@ -57,9 +57,12 @@ def create_app(config_name='default'):
 
                 # Collect last 7 days issues (use 'issues' collection to match frontend)
                 # Fallback if lack of index: fetch recent 300 and filter client-side
-                issues_ref = db.collection('issues').order_by(
-                    'createdAt', direction='DESCENDING').limit(300)
-                docs = list(issues_ref.stream())
+                try:
+                    issues_ref = db.collection('issues').order_by(
+                        'createdAt', direction='DESCENDING').limit(300)
+                    docs = list(issues_ref.stream())
+                except Exception:
+                    docs = list(db.collection('issues').limit(300).stream())
                 now = datetime.utcnow()
                 seven_days_ago = now - timedelta(days=7)
 
@@ -68,26 +71,28 @@ def create_app(config_name='default'):
                 resolved = 0
                 by_type = {}
                 for d in docs:
-                    data = d.to_dict()
+                    data = d.to_dict() or {}
                     created = data.get('createdAt') or data.get('created_at')
                     # createdAt may be ISO string or Timestamp; be tolerant
                     try:
-                        if hasattr(created, 'timestamp'):
-                            created_dt = created.to_datetime() if hasattr(
-                                created, 'to_datetime') else created
+                        if created and hasattr(created, 'to_datetime'):
+                            created_dt = created.to_datetime()
+                        elif created and hasattr(created, 'timestamp'):
+                            created_dt = created
                         else:
                             created_dt = datetime.fromisoformat(
-                                str(created).replace('Z', '+00:00'))
+                                str(created).replace('Z', '+00:00')) if created else None
                     except Exception:
-                        created_dt = now
-                    if created_dt < seven_days_ago:
+                        created_dt = None
+                    if not created_dt or created_dt < seven_days_ago:
                         continue
                     total += 1
                     status = (data.get('status') or '').lower()
                     if status in ('resolved', 'closed'):
                         resolved += 1
-                    itype = (data.get('category') or data.get('tags', ['other'])[
-                             0] if data.get('tags') else 'other')
+                    tags = data.get('tags') or []
+                    itype = data.get('category') or (
+                        tags[0] if tags else 'other')
                     by_type[itype] = by_type.get(itype, 0) + 1
                     items.append({
                         'id': d.id,

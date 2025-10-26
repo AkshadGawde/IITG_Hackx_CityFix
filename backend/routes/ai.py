@@ -88,6 +88,8 @@ def verify_resolution_route():
             return jsonify({'error': 'Both images and issue type required'}), 400
 
         # Decode images
+        if not isinstance(before_image_b64, str) or not isinstance(after_image_b64, str):
+            return jsonify({'error': 'Images must be base64 strings'}), 400
         before_bytes = base64.b64decode(before_image_b64)
         after_bytes = base64.b64decode(after_image_b64)
         before_image = Image.open(io.BytesIO(before_bytes))
@@ -156,117 +158,118 @@ def get_insights():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-    @ai_bp.route('/process-issue', methods=['POST'])
-    @token_required
-    def process_issue():
-        """Post-create AI processing for an 'issues' document.
 
-        Body: { "issue_id": string }
+@ai_bp.route('/process-issue', methods=['POST'])
+@token_required
+def process_issue():
+    """Post-create AI processing for an 'issues' document.
 
-        Computes category+confidence, severity+reason, duplicate detection within 100m,
-        and updates the Firestore document accordingly.
-        """
-        try:
-            data = request.get_json() or {}
-            issue_id = data.get('issue_id')
-            if not issue_id:
-                return jsonify({'error': 'issue_id required'}), 400
+    Body: { "issue_id": string }
 
-            db = get_firestore()
-            doc_ref = db.collection('issues').document(issue_id)
-            snap = doc_ref.get()
-            if not snap.exists:
-                return jsonify({'error': 'Issue not found'}), 404
+    Computes category+confidence, severity+reason, duplicate detection within 100m,
+    and updates the Firestore document accordingly.
+    """
+    try:
+        data = request.get_json() or {}
+        issue_id = data.get('issue_id')
+        if not issue_id:
+            return jsonify({'error': 'issue_id required'}), 400
 
-            issue = snap.to_dict()
-            description = issue.get('description') or ''
-            photo_url = issue.get('photoUrl') or issue.get('photo_url')
-            loc = issue.get('location') or {}
-            lat = loc.get('lat')
-            lng = loc.get('lon') or loc.get('lng')
+        db = get_firestore()
+        doc_ref = db.collection('issues').document(issue_id)
+        snap = doc_ref.get()
+        if not snap.exists:
+            return jsonify({'error': 'Issue not found'}), 404
 
-            if not (photo_url and isinstance(lat, (int, float)) and isinstance(lng, (int, float))):
-                return jsonify({'error': 'Issue missing photo or location'}), 400
+        issue = snap.to_dict() or {}
+        description = issue.get('description') or ''
+        photo_url = issue.get('photoUrl') or issue.get('photo_url')
+        loc = issue.get('location') or {}
+        lat = loc.get('lat')
+        lng = loc.get('lon') or loc.get('lng')
 
-            # Load image
-            img_resp = requests.get(photo_url, timeout=15)
-            img = Image.open(BytesIO(img_resp.content))
+        if not (photo_url and isinstance(lat, (int, float)) and isinstance(lng, (int, float))):
+            return jsonify({'error': 'Issue missing photo or location'}), 400
 
-            # 1) Category + confidence
-            cat = classify_issue(img, description)
-            category = cat.get('category', 'Other')
-            confidence = float(cat.get('confidence', 0.0))
+        # Load image
+        img_resp = requests.get(photo_url, timeout=15)
+        img = Image.open(BytesIO(img_resp.content))
 
-            # 2) Severity + reason (maps to Priority for UI)
-            sev = assess_severity(description, category)
-            severity = sev.get('severity', 'Medium')
-            reason = sev.get('reason', '')
-            priority_map = {
-                'Low': 'Low',
-                'Medium': 'Medium',
-                'High': 'High'
-            }
-            priority = priority_map.get(severity, 'Medium')
+        # 1) Category + confidence
+        cat = classify_issue(img, description)
+        category = cat.get('category', 'Other')
+        confidence = float(cat.get('confidence', 0.0))
 
-            # 3) Duplicate detection (100 meters radius)
-            nearby = get_nearby_documents('issues', float(lat), float(lng), 100.0,
-                                          lat_field='location.lat', lng_field='location.lon')
-            # Exclude itself
-            nearby = [d for d in nearby if d.get('id') != issue_id]
-            # Sort by distance for efficiency
-            nearby.sort(key=lambda x: x.get('_distance_km', 0))
-            # Prepare embedding for current description once
-            emb_main = get_text_embedding(description) or []
+        # 2) Severity + reason (maps to Priority for UI)
+        sev = assess_severity(description, category)
+        severity = sev.get('severity', 'Medium')
+        reason = sev.get('reason', '')
+        priority_map = {
+            'Low': 'Low',
+            'Medium': 'Medium',
+            'High': 'High'
+        }
+        priority = priority_map.get(severity, 'Medium')
 
-            duplicate_of = None
-            best_score = 0.0
-            for candidate in nearby[:8]:  # cap to 8 closest
-                try:
-                    # Text similarity
-                    cand_desc = (candidate.get('description') or '')
-                    emb_c = get_text_embedding(cand_desc) or []
-                    text_sim = cosine_similarity(
-                        emb_main, emb_c) if emb_main and emb_c else 0.0
+        # 3) Duplicate detection (100 meters radius)
+        nearby = get_nearby_documents('issues', float(lat), float(lng), 100.0,
+                                      lat_field='location.lat', lng_field='location.lon')
+        # Exclude itself
+        nearby = [d for d in nearby if d.get('id') != issue_id]
+        # Sort by distance for efficiency
+        nearby.sort(key=lambda x: x.get('_distance_km', 0))
+        # Prepare embedding for current description once
+        emb_main = get_text_embedding(description) or []
 
-                    # Image similarity (optional, network-heavy)
-                    cand_photo = candidate.get(
-                        'photoUrl') or candidate.get('photo_url')
-                    img2 = None
-                    if cand_photo:
-                        r2 = requests.get(cand_photo, timeout=10)
-                        img2 = Image.open(BytesIO(r2.content))
-                    img_sim = image_similarity_score(
-                        img, img2) if img2 is not None else 0.0
+        duplicate_of = None
+        best_score = 0.0
+        for candidate in nearby[:8]:  # cap to 8 closest
+            try:
+                # Text similarity
+                cand_desc = (candidate.get('description') or '')
+                emb_c = get_text_embedding(cand_desc) or []
+                text_sim = cosine_similarity(
+                    emb_main, emb_c) if emb_main and emb_c else 0.0
 
-                    score = (text_sim + img_sim) / 2.0
-                    if score > 0.8 and score > best_score:
-                        best_score = score
-                        duplicate_of = candidate['id']
-                except Exception:
-                    continue
+                # Image similarity (optional, network-heavy)
+                cand_photo = candidate.get(
+                    'photoUrl') or candidate.get('photo_url')
+                img2 = None
+                if cand_photo:
+                    r2 = requests.get(cand_photo, timeout=10)
+                    img2 = Image.open(BytesIO(r2.content))
+                img_sim = image_similarity_score(
+                    img, img2) if img2 is not None else 0.0
 
-            # Update Firestore doc with AI fields
-            update = {
-                'category': category,
-                'category_confidence': confidence,
-                'priority': priority,
-                'ai_reason': reason,
-                'updated_at': __import__('firebase_admin').firestore.SERVER_TIMESTAMP
-            }
-            if duplicate_of:
-                update['duplicate_of'] = duplicate_of
-                update['duplicate_similarity'] = best_score
+                score = (text_sim + img_sim) / 2.0
+                if score > 0.8 and score > best_score:
+                    best_score = score
+                    duplicate_of = candidate['id']
+            except Exception:
+                continue
 
-            doc_ref.update(update)
+        # Update Firestore doc with AI fields
+        update = {
+            'category': category,
+            'category_confidence': confidence,
+            'priority': priority,
+            'ai_reason': reason,
+            'updated_at': __import__('firebase_admin').firestore.SERVER_TIMESTAMP
+        }
+        if duplicate_of:
+            update['duplicate_of'] = duplicate_of
+            update['duplicate_similarity'] = best_score
 
-            return jsonify({
-                'issue_id': issue_id,
-                'category': category,
-                'confidence': confidence,
-                'priority': priority,
-                'ai_reason': reason,
-                'duplicate_of': duplicate_of,
-                'duplicate_similarity': best_score
-            }), 200
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+        doc_ref.update(update)
+
+        return jsonify({
+            'issue_id': issue_id,
+            'category': category,
+            'confidence': confidence,
+            'priority': priority,
+            'ai_reason': reason,
+            'duplicate_of': duplicate_of,
+            'duplicate_similarity': best_score
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
