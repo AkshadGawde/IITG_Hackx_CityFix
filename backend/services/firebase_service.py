@@ -95,3 +95,74 @@ def verify_token(id_token):
     except Exception as e:
         print(f"Token verification error: {str(e)}")
         return None
+
+
+# --------------------- Query helpers ---------------------
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance between two points on Earth in kilometers."""
+    from math import radians, sin, cos, sqrt, atan2
+    R = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * \
+        cos(radians(lat2)) * sin(dlon / 2) ** 2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return R * c
+
+
+def get_nearby_documents(collection: str, center_lat: float, center_lng: float, radius_meters: float,
+                         lat_field: str = 'location.lat', lng_field: str = 'location.lng'):
+    """Fetch documents within an approximate radius using a bounding box then filter by haversine.
+
+    Firestore does not support true geo-queries without extra indexing; this helper uses a simple
+    bounding-box approximation on lat/lng and then filters client-side.
+    """
+    db = get_firestore()
+    radius_km = radius_meters / 1000.0
+
+    # Rough degree deltas (valid for small areas)
+    lat_delta = radius_km / 111.0
+    lng_delta = radius_km / \
+        (111.0 * max(0.1, abs(__import__('math').cos(__import__('math').radians(center_lat)))))
+
+    min_lat, max_lat = center_lat - lat_delta, center_lat + lat_delta
+    min_lng, max_lng = center_lng - lng_delta, center_lng + lng_delta
+
+    # Build query with range filters; Firestore requires composite index for multiple range filters
+    query = db.collection(collection)
+    query = query.where(lat_field, '>=', min_lat).where(
+        lat_field, '<=', max_lat)
+    query = query.where(lng_field, '>=', min_lng).where(
+        lng_field, '<=', max_lng)
+
+    results = []
+    for doc in query.stream():
+        data = doc.to_dict()
+        # Extract lat/lng using nested fields (location.lat etc.)
+        try:
+            # Support both 'lng' and 'lon'
+            lat = _deep_get(data, lat_field)
+            lng = _deep_get(data, lng_field)
+            if lat is None or lng is None:
+                continue
+            dist_km = _haversine_km(float(lat), float(
+                lng), float(center_lat), float(center_lng))
+            if dist_km <= radius_km:
+                data['id'] = doc.id
+                data['_distance_km'] = dist_km
+                results.append(data)
+        except Exception:
+            continue
+
+    return results
+
+
+def _deep_get(obj: dict, path: str):
+    parts = path.split('.')
+    cur = obj
+    for p in parts:
+        if not isinstance(cur, dict) or p not in cur:
+            return None
+        cur = cur[p]
+    return cur

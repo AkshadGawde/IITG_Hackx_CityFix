@@ -3,6 +3,7 @@ from flask import Flask
 from flask_cors import CORS
 from config import config
 import os
+from datetime import datetime, timedelta
 
 
 def create_app(config_name='default'):
@@ -42,6 +43,89 @@ def create_app(config_name='default'):
     app.register_blueprint(complaints_bp, url_prefix='/api/complaints')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
+
+    # Optional: Background daily/weekly summaries via APScheduler
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        scheduler = BackgroundScheduler()
+
+        def _generate_daily_summary():
+            try:
+                from services.firebase_service import get_firestore
+                from services.gemini_service import weekly_summary_bullets
+                db = get_firestore()
+
+                # Collect last 7 days issues (use 'issues' collection to match frontend)
+                # Fallback if lack of index: fetch recent 300 and filter client-side
+                issues_ref = db.collection('issues').order_by(
+                    'createdAt', direction='DESCENDING').limit(300)
+                docs = list(issues_ref.stream())
+                now = datetime.utcnow()
+                seven_days_ago = now - timedelta(days=7)
+
+                items = []
+                total = 0
+                resolved = 0
+                by_type = {}
+                for d in docs:
+                    data = d.to_dict()
+                    created = data.get('createdAt') or data.get('created_at')
+                    # createdAt may be ISO string or Timestamp; be tolerant
+                    try:
+                        if hasattr(created, 'timestamp'):
+                            created_dt = created.to_datetime() if hasattr(
+                                created, 'to_datetime') else created
+                        else:
+                            created_dt = datetime.fromisoformat(
+                                str(created).replace('Z', '+00:00'))
+                    except Exception:
+                        created_dt = now
+                    if created_dt < seven_days_ago:
+                        continue
+                    total += 1
+                    status = (data.get('status') or '').lower()
+                    if status in ('resolved', 'closed'):
+                        resolved += 1
+                    itype = (data.get('category') or data.get('tags', ['other'])[
+                             0] if data.get('tags') else 'other')
+                    by_type[itype] = by_type.get(itype, 0) + 1
+                    items.append({
+                        'id': d.id,
+                        'category': data.get('category'),
+                        'priority': data.get('priority'),
+                        'status': data.get('status'),
+                        'location': data.get('location')
+                    })
+
+                stats = {
+                    'total_new': total,
+                    'resolved': resolved,
+                    'pending': max(0, total - resolved),
+                    'by_type': by_type,
+                }
+                bullets = weekly_summary_bullets(stats, items)
+                report = {
+                    'generated_at': __import__('firebase_admin').firestore.SERVER_TIMESTAMP,
+                    'period_days': 7,
+                    'stats': stats,
+                    'bullets': bullets,
+                }
+                db.collection('reports').document('weekly_summary').set(report)
+            except Exception as e:
+                print(f"Summary generation error: {e}")
+
+        # Run every 24 hours
+        scheduler.add_job(_generate_daily_summary, 'interval',
+                          hours=24, id='daily_summary')
+        scheduler.start()
+
+        # Expose manual trigger endpoint under admin
+        @app.route('/api/admin/generate-report', methods=['POST'])
+        def manual_generate_report():
+            _generate_daily_summary()
+            return {'ok': True}, 200
+    except Exception as e:
+        print(f"APScheduler not configured: {e}")
 
     # Debug endpoint to verify Storage configuration (dev-only)
     @app.route('/api/_debug/storage')

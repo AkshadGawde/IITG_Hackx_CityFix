@@ -25,6 +25,12 @@ export interface Issue {
   photoUrl: string; // Public URL from Firebase Storage
   tags: string[];
   priority: Priority;
+  // AI-enriched fields (optional, populated by backend)
+  category?: string;
+  category_confidence?: number;
+  ai_reason?: string;
+  duplicate_of?: string;
+  duplicate_similarity?: number;
   location: {
     lat: number;
     lon: number;

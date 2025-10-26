@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Issue } from '../types';
 import * as issueService from '../services/issueService';
+import { processIssue } from '../services/backend';
 import * as geminiService from '../services/geminiService';
 
 interface IssueFormProps {
@@ -76,10 +77,14 @@ const IssueForm: React.FC<IssueFormProps> = ({ onIssueAdded }) => {
         location,
       };
 
-      await issueService.addIssue(newIssueData, (progress) => {
+      const created = await issueService.addIssue(newIssueData, (progress) => {
         setUploadProgress(progress);
       });
       setSubmissionStep('submitting');
+      // Kick off backend AI processing (non-blocking)
+      if (created?.id) {
+        processIssue(created.id);
+      }
       onIssueAdded();
 
     } catch (err: any) {
