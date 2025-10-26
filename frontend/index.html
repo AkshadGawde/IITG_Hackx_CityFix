@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF--8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RIFI (Report It, Fix It)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-blue': '#1E40AF',
+            'brand-lightblue': '#3B82F6',
+            'brand-gray': '#F3F4F6',
+            'brand-dark': '#1F2937',
+          },
+        }
+      }
+    }
+  </script>
+  <!-- removed: unused Vite index.html to avoid conflicts with Next.js -->
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js": "https://aistudiocdn.com/firebase@10.12.2/firebase-app.js",
+    "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js": "https://aistudiocdn.com/firebase@10.12.2/firebase-auth.js",
+    "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js": "https://aistudiocdn.com/firebase@10.12.2/firebase-firestore.js",
+    "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js": "https://aistudiocdn.com/firebase@10.12.2/firebase-storage.js",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.4.0/"
+  }
+}
+</script>
+  <link rel="stylesheet" href="/index.css">
+</head>
+
+<body class="bg-brand-gray text-brand-dark">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>
