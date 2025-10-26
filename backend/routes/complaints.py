@@ -3,7 +3,8 @@ from flask import Blueprint, request, jsonify
 from routes.auth import token_required
 from services.firebase_service import get_firestore, get_storage
 from services.gemini_service import predict_issue_type, generate_summary_and_priority
-from firebase_admin import firestore
+from firebase_admin import firestore as fa_firestore
+from google.cloud.firestore import SERVER_TIMESTAMP
 from datetime import datetime
 import traceback
 import requests
@@ -11,6 +12,98 @@ from io import BytesIO
 from PIL import Image
 
 complaints_bp = Blueprint('complaints', __name__)
+
+
+@complaints_bp.route('/upload', methods=['POST', 'OPTIONS'])
+def upload_image():
+    """Upload image to Firebase Storage (avoids CORS issues)."""
+    # Handle preflight OPTIONS request (no auth needed)
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    # For POST request, require authentication
+    from routes.auth import verify_token
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'Authorization required'}), 401
+
+    token = auth_header.split(' ')[1]
+    decoded_token = verify_token(token)
+    if not decoded_token:
+        return jsonify({'error': 'Invalid token'}), 401
+
+    try:
+        print(f"Upload request received. Files: {request.files}")
+        print(f"Content-Type: {request.content_type}")
+
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image file provided'}), 400
+
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        print(
+            f"File received: {file.filename}, Content-Type: {file.content_type}")
+
+        # Get user ID from token
+        user_id = decoded_token['uid']
+
+        # Generate unique filename
+        timestamp = datetime.now().timestamp()
+        file_extension = file.filename.split(
+            '.')[-1] if file.filename else 'jpg'
+        filename = f"complaints/{user_id}/{int(timestamp)}_{file.filename}"
+
+        # Upload to Firebase Storage
+        bucket = get_storage()
+        try:
+            print(f"Storage bucket resolved: {bucket.name}")
+            try:
+                exists = bucket.exists()
+            except Exception:
+                exists = False
+            if not exists:
+                # Return a clear, actionable error instead of a mysterious 500 from GCS
+                return jsonify({
+                    'error': 'Firebase Storage bucket is not provisioned',
+                    'bucket': getattr(bucket, 'name', None),
+                    'hint': "Open Firebase Console → Build → Storage → 'Get started' to create the default bucket, then restart the backend.",
+                }), 503
+        except Exception:
+            pass
+        blob = bucket.blob(filename)
+
+        # Read file content
+        file_content = file.read()
+        content_type = file.content_type or 'image/jpeg'
+
+        print(
+            f"Uploading to Storage: {filename}, size: {len(file_content)} bytes")
+
+        blob.upload_from_string(
+            file_content,
+            content_type=content_type
+        )
+
+        # Make the blob publicly readable
+        blob.make_public()
+
+        # Get public URL
+        photo_url = blob.public_url
+
+        print(f"Upload successful! URL: {photo_url}")
+
+        return jsonify({
+            'success': True,
+            'photo_url': photo_url,
+            'filename': filename
+        }), 200
+
+    except Exception as e:
+        print(f"Upload error: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 @complaints_bp.route('/new', methods=['POST'])
@@ -112,13 +205,14 @@ def create_new_complaint():
                 'lat': float(location['lat']),
                 'lng': float(location['lng'])
             },
-            'status': 'Pending',
+            # Use lowercase status to match filters used across the app
+            'status': 'pending',
             'priority': priority,
             'ai_tags': ai_tags,
             'predicted_type': predicted_type,
             'ai_summary': ai_summary,
-            'created_at': firestore.SERVER_TIMESTAMP,
-            'updated_at': firestore.SERVER_TIMESTAMP
+            'created_at': SERVER_TIMESTAMP,
+            'updated_at': SERVER_TIMESTAMP
         }
 
         # Add to Firestore

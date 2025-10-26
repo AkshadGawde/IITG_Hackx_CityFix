@@ -1,38 +1,23 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import { AuthProvider } from "@/contexts/AuthContext";
-import Navbar from "@/components/Navbar";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import './globals.css';
+import Providers from './providers';
+import type { ReactNode } from 'react';
+import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: "CityFix - Civic Issue Tracker",
-  description: "AI-powered civic complaint platform to report and track city issues",
+  title: 'RIFI (Report It, Fix It)',
+  description: 'Report civic issues and track resolutions',
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: ReactNode;
+}) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <AuthProvider>
-          <Navbar />
-          {children}
-        </AuthProvider>
+    <html lang="en" suppressHydrationWarning>
+      <head />
+      <body className="bg-brand-gray text-brand-dark">
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

@@ -1,0 +1,7 @@
+{
+  "name": "RIFI (Report It, Fix It)",
+  "description": "RIFI (Report It, Fix It) allows you to report and track civic issues in your neighborhood. Snap a photo, add details, and see real-time progress on resolutions.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

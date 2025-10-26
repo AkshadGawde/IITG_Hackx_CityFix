@@ -57,7 +57,7 @@ def admin_required(f):
 
 @auth_bp.route('/verify', methods=['POST'])
 def verify():
-    """Verify authentication token."""
+    """Verify authentication token and upsert user profile."""
     token = request.json.get('token')
 
     if not token:
@@ -66,6 +66,35 @@ def verify():
     decoded_token = verify_token(token)
     if not decoded_token:
         return jsonify({'error': 'Invalid token'}), 401
+
+    # Ensure user profile exists in Firestore
+    try:
+        db = get_firestore()
+        uid = decoded_token['uid']
+        email = decoded_token.get('email')
+        name = decoded_token.get('name') or (
+            email.split('@')[0] if email else None)
+
+        user_ref = db.collection('users').document(uid)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            user_ref.set({
+                'uid': uid,
+                'email': email,
+                'name': name,
+                'role': 'user',
+                'created_at': __import__('firebase_admin').firestore.SERVER_TIMESTAMP,
+                'updated_at': __import__('firebase_admin').firestore.SERVER_TIMESTAMP,
+            })
+        else:
+            user_ref.update({
+                'email': email,
+                'name': name,
+                'updated_at': __import__('firebase_admin').firestore.SERVER_TIMESTAMP,
+            })
+    except Exception as e:
+        # Log but don't fail verify; profile endpoint can still read later
+        print(f"User upsert error during verify: {str(e)}")
 
     return jsonify({
         'valid': True,
@@ -87,8 +116,12 @@ def get_profile():
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
 
-        return jsonify(user_doc.to_dict()), 200
+        user_data = user_doc.to_dict()
+        return jsonify(user_data), 200
     except Exception as e:
+        print(f"Profile error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

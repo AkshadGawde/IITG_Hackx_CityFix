@@ -1,181 +1,83 @@
-'use client';
-
-import { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  User,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signOut as firebaseSignOut,
-  onAuthStateChanged
-} from 'firebase/auth';
-import { auth } from '@/lib/firebase';
-
-interface UserData {
-  uid: string;
-  email: string | null;
-  name: string | null;
-  role: 'user' | 'admin';
-}
+import React, { createContext, useState, useContext, ReactNode, useEffect, useMemo } from 'react';
+import { User } from '../types';
+import * as authService from '../services/authService';
+import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from '../services/firebase';
 
 interface AuthContextType {
-  user: User | null;
-  userData: UserData | null;
-  loading: boolean;
-  signUp: (email: string, password: string, name: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
-  signOut: () => Promise<void>;
-  getIdToken: () => Promise<string | null>;
+  currentUser: User | null;
+  setCurrentUser: (user: User | null) => void; // Kept for AuthPage to work
+  logout: () => void;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [userData, setUserData] = useState<UserData | null>(null);
-  const [loading, setLoading] = useState(true);
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      
-      if (user) {
-        // Fetch user data from backend
-        try {
-          const token = await user.getIdToken();
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/profile`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
+    // Firebase's real-time auth listener
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+      if (firebaseUser) {
+        // User is signed in, fetch their role from Firestore
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setCurrentUser({
+            id: firebaseUser.uid,
+            email: firebaseUser.email!,
+            role: userData.role
           });
-          
-          if (response.ok) {
-            const data = await response.json();
-            setUserData({
-              uid: data.user_id || data.uid,
-              email: data.email,
-              name: data.name,
-              role: data.role || 'user'
-            });
-          }
-        } catch (error) {
-          console.error('Error fetching user data:', error);
+        } else {
+          // User exists in Auth but not in our 'users' collection.
+          // This is an inconsistent state, so sign them out.
+          await authService.logout();
+          setCurrentUser(null);
         }
       } else {
-        setUserData(null);
+        // User is signed out
+        setCurrentUser(null);
       }
-      
-      setLoading(false);
+      setIsLoading(false);
     });
 
-    return unsubscribe;
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string, name: string) => {
-    try {
-      // Create user in Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      
-      // Send user data to backend
-      const token = await userCredential.user.getIdToken();
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/signup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ email, password, name })
-      });
 
-      if (!response.ok) {
-        throw new Error('Failed to create user profile');
-      }
-    } catch (error) {
-      console.error('Signup error:', error);
-      throw error;
-    }
+  const logout = async () => {
+    await authService.logout();
+    setCurrentUser(null);
   };
 
-  const signIn = async (email: string, password: string) => {
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      
-      // Verify with backend
-      const token = await userCredential.user.getIdToken();
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ token })
-      });
-    } catch (error) {
-      console.error('Sign in error:', error);
-      throw error;
-    }
-  };
+  const value = useMemo(() => ({
+    currentUser,
+    setCurrentUser, // This is still needed by the AuthPage after signup/login
+    logout,
+    isLoading
+  }), [currentUser, isLoading]);
 
-  const signInWithGoogle = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      const userCredential = await signInWithPopup(auth, provider);
-      
-      // Send to backend to create/update user profile
-      const token = await userCredential.user.getIdToken();
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ token })
-      });
-    } catch (error) {
-      console.error('Google sign in error:', error);
-      throw error;
-    }
-  };
+  if (isLoading) {
+    // Render a loading screen while checking for user session
+    return (
+        <div className="min-h-screen bg-brand-gray flex justify-center items-center">
+            <svg className="animate-spin h-10 w-10 text-brand-blue" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+        </div>
+    );
+  }
 
-  const signOut = async () => {
-    try {
-      await firebaseSignOut(auth);
-      setUserData(null);
-    } catch (error) {
-      console.error('Sign out error:', error);
-      throw error;
-    }
-  };
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
 
-  const getIdToken = async () => {
-    if (user) {
-      return await user.getIdToken();
-    }
-    return null;
-  };
-
-  const value = {
-    user,
-    userData,
-    loading,
-    signUp,
-    signIn,
-    signInWithGoogle,
-    signOut,
-    getIdToken
-  };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
-export function useAuth() {
+export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-}
+};

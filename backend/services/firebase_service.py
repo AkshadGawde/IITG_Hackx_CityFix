@@ -3,6 +3,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage, auth
 from google.cloud.firestore import SERVER_TIMESTAMP
 import os
+import json
 
 
 _firebase_initialized = False
@@ -24,16 +25,48 @@ def initialize_firebase(credentials_path):
         return
 
     try:
+        # Determine storage bucket name
+        bucket_name = os.getenv('FIREBASE_STORAGE_BUCKET')
+        if not bucket_name:
+            try:
+                with open(credentials_path, 'r') as f:
+                    sa = json.load(f)
+                    project_id = sa.get('project_id')
+                    if project_id:
+                        bucket_name = f"{project_id}.appspot.com"
+            except Exception:
+                bucket_name = None
+
+        if not bucket_name:
+            print("⚠️  Warning: FIREBASE_STORAGE_BUCKET not set and could not infer from credentials.\n    Some storage operations may fail until configured.")
+
         cred = credentials.Certificate(credentials_path)
-        firebase_admin.initialize_app(cred, {
-            'storageBucket': 'cityfix-91dcf.firebasestorage.app'
-        })
+        app_options = {'storageBucket': bucket_name} if bucket_name else None
+        if app_options:
+            firebase_admin.initialize_app(cred, app_options)
+        else:
+            firebase_admin.initialize_app(cred)
 
         db = firestore.client()
-        bucket = storage.bucket()
+        # If bucket_name is set, use it explicitly; else get default bucket
+        bucket = storage.bucket(
+            bucket_name) if bucket_name else storage.bucket()
+        try:
+            if bucket and hasattr(bucket, 'exists'):
+                if not bucket.exists():
+                    print("❗ Firebase Storage bucket not found.")
+                    print(
+                        "   Go to Firebase Console → Storage and click 'Get started' to provision the default bucket.")
+                    if bucket_name:
+                        print(f"   Expected bucket: {bucket_name}")
+        except Exception as e:
+            # Non-fatal: existence check can fail if IAM or network issues; continue and let upload path handle errors
+            print(f"ℹ️  Could not verify bucket existence: {str(e)}")
         _firebase_initialized = True
 
         print("✅ Firebase initialized successfully")
+        if bucket_name:
+            print(f"   • Storage bucket: {bucket_name}")
     except Exception as e:
         print(f"❌ Error initializing Firebase: {str(e)}")
 
